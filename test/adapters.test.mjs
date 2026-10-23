@@ -12,7 +12,9 @@ import { startServer, json, text, sse, keyed, unkeyed } from './helpers.mjs';
 const { ExaSearchProvider } = await import('../lib/providers/exa.js');
 const { TavilySearchProvider } = await import('../lib/providers/tavily.js');
 const { TinyFishSearchProvider, parseRpcMessage } = await import('../lib/providers/tinyfish.js');
-const { normalizeSnippet, isIsoDate, trimBaseUrl, request: httpRequest } = await import('../lib/http.js');
+const { normalizeSnippet, normalizePublishedAt, isIsoDate, trimBaseUrl, request: httpRequest } = await import(
+  '../lib/http.js'
+);
 
 const exa = (server, overrides = {}) =>
   new ExaSearchProvider({
@@ -134,12 +136,33 @@ test('Tavily: keyless request shape and result mapping', async () => {
       query: 'q',
       search_depth: 'advanced',
       chunks_per_source: 5,
+      include_published_date: true,
       max_results: 7,
       include_answer: true,
     });
     assert.equal(result.content, 'A short answer');
     assert.deepEqual(result.sources, [
       { url: 'https://t.example/1', title: 'T', snippet: 'some text', publishedAt: '2024-05-06' },
+    ]);
+  } finally {
+    await server.close();
+  }
+});
+
+test('Tavily: include_published_date RFC dates are normalized to ISO', async () => {
+  const server = await startServer((_request, response) =>
+    json(response, {
+      results: [
+        { url: 'https://t.example/rfc', content: 'x', published_date: 'Sat, 07 Sep 2019 09:13:51 GMT' },
+        { url: 'https://t.example/bad', content: 'x', published_date: 'not-a-date' },
+      ],
+    }),
+  );
+  try {
+    const result = await tavily(server).search({ query: 'q' });
+    assert.deepEqual(result.sources, [
+      { url: 'https://t.example/rfc', snippet: 'x', publishedAt: '2019-09-07T09:13:51.000Z' },
+      { url: 'https://t.example/bad', snippet: 'x' },
     ]);
   } finally {
     await server.close();
@@ -259,6 +282,49 @@ test('TinyFish: keyed session initialization, reuse, and one re-initialization a
   }
 });
 
+test('TinyFish: human dates are normalized to ISO; publishedAt is omitted when unparseable', async () => {
+  const payload = JSON.stringify({
+    results: [
+      { url: 'https://tf.example/human', snippet: 'a', date: 'Sep 8, 2026' },
+      { url: 'https://tf.example/relative', snippet: 'b', date: '2 months ago' },
+      { url: 'https://tf.example/bad', snippet: 'c', date: 'not-a-date' },
+    ],
+  });
+  const server = await startServer((_request, response) => json(response, rpcResult(payload)));
+  try {
+    const result = await tinyfish(server).search({ query: 'q' });
+    assert.match(result.sources[0].publishedAt, /^2026-09-08T/);
+    assert.match(result.sources[1].publishedAt, /^\d{4}-\d{2}-\d{2}T/);
+    assert.equal(Object.hasOwn(result.sources[2], 'publishedAt'), false);
+  } finally {
+    await server.close();
+  }
+});
+
+test('TinyFish: an unparseable 200 body or one without result raises WEB_PROVIDER_ERROR instead of empty results', async () => {
+  for (const body of ['{not json', '<html>gateway error</html>', '']) {
+    const server = await startServer((_request, response) => text(response, body));
+    try {
+      await assert.rejects(
+        () => tinyfish(server).search({ query: 'q' }),
+        (error) => error.code === 'WEB_PROVIDER_ERROR' && /unparseable response body/.test(error.message),
+      );
+    } finally {
+      await server.close();
+    }
+  }
+
+  const missingResult = await startServer((_request, response) => json(response, { jsonrpc: '2.0', id: 1 }));
+  try {
+    await assert.rejects(
+      () => tinyfish(missingResult).search({ query: 'q' }),
+      (error) => error.code === 'WEB_PROVIDER_ERROR' && /unparseable response body/.test(error.message),
+    );
+  } finally {
+    await missingResult.close();
+  }
+});
+
 test('Vendor error mapping: HTTP status, JSON-RPC error, malformed JSON, isError', async () => {
   const limited = await startServer((_request, response) => json(response, { detail: { error: 'slow down' } }, 429));
   try {
@@ -308,6 +374,11 @@ test('Vendor error mapping: HTTP status, JSON-RPC error, malformed JSON, isError
 test('HTTP utilities: snippet collapsing/truncation, ISO dates, baseURL trimming', () => {
   assert.equal(normalizeSnippet('  one \n\t two  ', 400), 'one two');
   assert.equal(normalizeSnippet('alpha beta gamma delta epsilon zeta theta iota kappa', 24), 'alpha beta gamma delta…');
+  assert.equal(normalizeSnippet('alpha beta', 5), 'alph…');
+  assert.equal(normalizeSnippet('alpha beta', 1), '…');
+  for (const limit of [1, 5, 10, 24]) {
+    assert.ok(normalizeSnippet('alpha beta gamma delta epsilon zeta', limit).length <= limit, `cap ${limit}`);
+  }
   assert.equal(normalizeSnippet('  ', 400), undefined);
   assert.equal(normalizeSnippet(42, 400), undefined);
   assert.equal(normalizeSnippet('abcdefghij', 0), 'abcdefghij');
@@ -320,6 +391,20 @@ test('HTTP utilities: snippet collapsing/truncation, ISO dates, baseURL trimming
   assert.equal(trimBaseUrl('https://example.com///'), 'https://example.com');
   assert.equal(trimBaseUrl(undefined), '');
   assert.equal(parseRpcMessage(`data: ${JSON.stringify({ id: 1, result: {} })}\n`).id, 1);
+});
+
+test('Date normalization: ISO kept; RFC, human and relative dates converted to ISO', () => {
+  assert.equal(normalizePublishedAt('2024-01-02T03:04:05Z'), '2024-01-02T03:04:05Z');
+  assert.equal(normalizePublishedAt('2024-05-06'), '2024-05-06');
+  assert.equal(normalizePublishedAt('Sat, 07 Sep 2019 09:13:51 GMT'), '2019-09-07T09:13:51.000Z');
+  assert.equal(normalizePublishedAt('Sep 8, 2026'), '2026-09-08T00:00:00.000Z');
+  const now = Date.parse('2026-10-23T12:00:00Z');
+  assert.equal(normalizePublishedAt('2 months ago', now), '2026-08-24T12:00:00.000Z');
+  assert.equal(normalizePublishedAt('6 hours ago', now), '2026-10-23T06:00:00.000Z');
+  assert.equal(normalizePublishedAt('999999999999999999 years ago', now), undefined);
+  for (const value of ['not-a-date', undefined, '', '   ']) {
+    assert.equal(normalizePublishedAt(value), undefined, String(value));
+  }
 });
 
 test('Timeout: timeoutMs is forwarded to backend requests', async () => {

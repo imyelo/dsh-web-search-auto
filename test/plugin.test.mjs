@@ -10,7 +10,10 @@ import '../scripts/test-hooks.mjs';
 import { fakeCtx, withFetch } from './helpers.mjs';
 
 const { Config } = await import('../lib/config.js');
+const { KeyState } = await import('../lib/keys.js');
 const plugin = await import('../index.js');
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 test('Config: an empty config fills in every documented default; invalid enums and out-of-range values are rejected', () => {
   const config = Config({});
@@ -132,6 +135,26 @@ test('Credential order: literal > managed credential service > launch environmen
   } finally {
     clearKey();
   }
+});
+
+test('Credential update: a keyed backend previously deemed missing becomes available after reference-updated', async () => {
+  let stored;
+  const { ctx, emit } = fakeCtx({
+    services: {
+      credentials: {
+        resolve: async () => (stored === undefined ? undefined : { value: stored }),
+      },
+    },
+  });
+  const state = new KeyState(ctx, { apiKeyEnv: 'EXA_API_KEY', keyless: false });
+  await tick();
+  assert.equal(state.available(), false, 'should be unavailable after probing when no key is present at startup');
+
+  stored = 'sk-late';
+  emit('credentials/reference-updated', 'EXA_API_KEY');
+  await tick();
+  assert.equal(state.available(), true, 'should re-probe and recover after credentials are written');
+  assert.equal(await state.resolve(), 'sk-late');
 });
 
 test('apply: unknown ids in order are skipped and the remaining order is honored', async () => {

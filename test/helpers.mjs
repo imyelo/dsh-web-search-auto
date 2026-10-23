@@ -104,7 +104,17 @@ export function fakeCtx({ failOnId, services = {} } = {}) {
   const registrations = [];
   const effectCleanups = [];
   const logs = [];
+  const listeners = new Map();
   const ctx = {
+    on(event, callback) {
+      const hooks = listeners.get(event) ?? [];
+      hooks.push(callback);
+      listeners.set(event, hooks);
+      return () => {
+        const index = hooks.indexOf(callback);
+        if (index >= 0) hooks.splice(index, 1);
+      };
+    },
     web: {
       registerSearchProvider(provider) {
         if (provider.id === failOnId) throw new Error(`registration failed for ${provider.id}`);
@@ -129,7 +139,15 @@ export function fakeCtx({ failOnId, services = {} } = {}) {
       };
     },
   };
-  return { ctx, registrations, effectCleanups, logs };
+  return {
+    ctx,
+    registrations,
+    effectCleanups,
+    logs,
+    emit(event, ...args) {
+      for (const callback of [...(listeners.get(event) ?? [])]) callback(...args);
+    },
+  };
 }
 
 /**
