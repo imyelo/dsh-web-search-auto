@@ -1,22 +1,32 @@
-# @local/web-search-auto
+# dsh-web-search-auto
 
 [English](README.md) | 中文
 
-一个 `ctx.web` 搜索提供方，把三个后端——Exa、Tavily、TinyFish——放在同一个 provider id 之下。它每次调用挑一个可用后端（粘滞随机、固定优先级或轮询），并在该后端报错或被限流时于同一次调用内降级。适用于 harness 只能指定一个搜索提供方、而部署有多个厂商可分摊与兜底的场景。
+dsh-web-search-auto 是集成多个主流 Agent WebSearch 服务的 DeepSeek Harness 网页搜索插件，支持同时配置多个后端，如 Exa、Tavily、TinyFish —— 就像 [Opencode v2 自带的 WebSearch](https://opencode.ai/v2/docs/websearch/) 特性。
 
-它只处理搜索，覆盖三个厂商的 API。它不抓取网页、不按查询切换后端，也不统计用量。
+你可以通过设置全局共享的环境变量，或在 cordis patch 中配置后端，插件会自动分发搜索任务。
+
+## 特性
+
+- 🧩 **多合一**：一次安装就带上全部后端，不必为每家厂商单独安装插件。
+- ⚙️ **简单配置**：只设环境变量或写几行 `config`，其余字段都有默认值。
+- 🔁 **故障转移**：某个后端失败就冷却一段时间，同一次调用改试下一个。
+- 🎲 **分流**：`random`、`priority`、`round-robin` 三种策略决定后端顺序。
+- 🔍 **多渠道比对**（TODO）：同一次查询向多个后端取结果再比对。
+
+## 支持的厂商
+
+- Exa（REST）
+- Tavily（REST）
+- TinyFish（MCP over HTTP）
 
 ## 安装
 
-包名是 `@local/web-search-auto`。它尚未发布，因此按路径安装。
-
 ```bash
-git clone https://github.com/imyelo/dsh-web-search-auto.git
-cd dsh-web-search-auto
-dsh plugin --profile web add "$PWD"
+dsh plugin --profile web add dsh-web-search-auto
 ```
 
-bundle 会插入 Loader 行 `web-search-auto`，并注册 provider id `auto`。在同一个 profile 的补丁文件里选中它：
+bundle 会添加插件条目 `web-search-auto`，并注册搜索提供方 `auto`。在同一个 profile 的补丁文件里设置这个提供方：
 
 ```yaml
 - id: web
@@ -25,94 +35,179 @@ bundle 会插入 Loader 行 `web-search-auto`，并注册 provider id `auto`。�
     fetchProvider: http
 ```
 
-profile 覆盖会整体替换 `config`，所以要把该行需要的字段全部重述。改动 provider id 或插件代码，下次进程启动时生效。官方 `@deepseek-ai/dsh-web-search-exa` 注册 `exa`；本插件注册 `auto`，因此两者可以同时装在一个 profile 里。
+## 配置后端
+
+每个后端有两种配置形式，可以混用：
+
+| 形式 | 用途 |
+| --- | --- |
+| 环境变量 | 放密钥，全局共享。插件按名字自动读取。 |
+| cordis patch | 在插件条目的 `config` 里写密钥、端点与检索参数。 |
+
+| 后端 | 环境变量 | cordis patch 密钥字段 | 无密钥可用 |
+| --- | --- | --- | --- |
+| Exa | `EXA_API_KEY` | `providers.exa.apiKey` | 否 |
+| Tavily | `TAVILY_API_KEY` | `providers.tavily.apiKey` | 是 |
+| TinyFish | `TINYFISH_API_KEY` | `providers.tinyfish.apiKey` | 是 |
+
+环境变量可以来自进程环境，也可以来自 dsh 启动时读取的 `.env`：启动目录的 `.env` 与 `$DSH_HOME/.env`。按此顺序，前面的来源优先。
+
+```bash
+export EXA_API_KEY=sk-...
+export TAVILY_API_KEY=tvly-...
+```
+
+等价的 cordis patch 写法。只列出要改的字段，其余保留默认值：
+
+```yaml
+- id: web-search-auto
+  config:
+    providers:
+      exa:
+        apiKey: sk-...               # 直接写密钥
+      tavily:
+        apiKeyEnv: MY_TAVILY_KEY     # 换成别的变量名或凭据名
+        searchDepth: advanced
+      tinyfish:
+        enabled: false               # 不启用这个后端
+```
+
+所有字段见下节。选后端的方式与 [Opencode v2 的 WebSearch](https://opencode.ai/v2/docs/websearch/) 类似：`random` 选中一个后端后就沿用它。这里还多两种策略，而且故障时能够自动切换后端 —— Opencode v2 只在 HTTP 429 时切换。
 
 ## 配置项
 
-所有字段都有默认值，Loader 行可以整个省略 `config`。
+所有字段都有默认值。插件条目可以整个省略 `config`。
+
+### 提供方
 
 | 字段 | 类型 | 默认值 | 作用 |
 | --- | --- | --- | --- |
-| `id` | string | `auto` | 注册到 web 服务的 provider id；`web.searchProvider` 填这个值。 |
-| `strategy` | `random` \| `priority` \| `round-robin` | `random` | 单次调用使用的后端顺序。 |
-| `order` | string[] | `[exa, tavily, tinyfish]` | `priority` 的优先顺序与并列时的次序；未知 id 被忽略。 |
-| `exposeProviders` | boolean | `false` | 额外把每个启用的后端注册为 `<id>-<backend>`。 |
-| `cooldownMs` | number | `60000` | 失败后端被跳过的时长。 |
-| `rateLimitCooldownMs` | number | `600000` | 返回 402、429 或 432 的后端被跳过的时长。 |
+| `id` | string | `auto` | 插件注册到 web 服务的 provider id。`web.searchProvider` 填这个值。 |
+| `strategy` | `random` \| `priority` \| `round-robin` | `random` | 插件在单次调用中使用的后端顺序。 |
+| `order` | string[] | `[exa, tavily, tinyfish]` | `priority` 的优先顺序与并列时的次序。插件忽略未知 id。 |
+| `exposeProviders` | boolean | `false` | 为 true 时，插件额外把每个启用的后端注册为 `<id>-<backend>`。 |
+
+### 超时与冷却
+
+| 字段 | 类型 | 默认值 | 作用 |
+| --- | --- | --- | --- |
+| `cooldownMs` | number | `60000` | 插件跳过失败后端的时长。 |
+| `rateLimitCooldownMs` | number | `600000` | 插件跳过返回 402、429 或 432 的后端的时长。 |
 | `timeoutMs` | number | `25000` | 每个后端的单次请求超时。 |
-| `snippetMaxChars` | number | `400` | 折叠空白并把摘要截断到该长度；`0` 关闭截断。 |
-| `providers.<backend>.enabled` | boolean | `true` | 是否构建并注册该后端。 |
-| `providers.<backend>.apiKey` | string | 未设置 | 字面量密钥；优先级最高。 |
-| `providers.<backend>.apiKeyEnv` | string | `EXA_API_KEY`、`TAVILY_API_KEY`、`TINYFISH_API_KEY` | 凭据引用，先从凭据服务解析，再回退到启动环境。 |
-| `providers.exa.baseURL` | string | `https://api.exa.ai` | 端点基址；追加 `/search`。 |
-| `providers.exa.searchType` | `auto` \| `keyword` \| `neural` | `auto` | Exa 检索模式。 |
-| `providers.exa.highlightsPerResult` | number | `1` | 每个结果请求的 highlight 句子数。 |
-| `providers.exa.numResults` | number | 未设置 | 请求未带 `maxResults` 时发送的结果数。 |
-| `providers.tavily.baseURL` | string | `https://api.tavily.com` | 端点基址；追加 `/search`。 |
-| `providers.tavily.keyless` | boolean | `true` | 没有密钥时使用 Tavily keyless 访问。 |
-| `providers.tavily.searchDepth` | `basic` \| `advanced` | `basic` | Tavily 搜索深度。 |
-| `providers.tavily.chunksPerSource` | number | `3` | Tavily 的 `chunks_per_source`。 |
-| `providers.tavily.includeAnswer` | boolean | `false` | 向 Tavily 索取答案，并作为 `content` 返回。 |
-| `providers.tinyfish.endpoint` | string | `https://agent.tinyfish.ai/mcp` | TinyFish MCP 端点。 |
-| `providers.tinyfish.keyless` | boolean | `true` | 没有密钥时使用 TinyFish keyless 访问。 |
-| `providers.tinyfish.domainType` | `web` \| `news` \| `research_paper` | `web` | TinyFish 搜索域。 |
-| `providers.tinyfish.language` | string | 未设置 | 可选语言代码。 |
-| `providers.tinyfish.location` | string | 未设置 | 可选国家代码。 |
-
-## 行为
-
-### 选择
-
-`random` 抽取一个可用后端并在后续调用中复用它；只有该后端报错或进入冷却时才更换。`priority` 取 `order` 中第一个可用后端。`round-robin` 每次调用把 `order` 的起始位置轮换一位。后端的可用性只由是否启用、以及凭据能否本地解析或是否使用 keyless 决定，不做网络检查。要固定某个后端，把 `strategy` 设为 `priority` 并让 `order` 只含该项，或禁用其余后端。
-
-### 降级与冷却
-
-失败的后端进入冷却，同一次调用继续尝试下一个候选并返回第一个成功结果。当所有候选都在冷却时，本次调用忽略冷却，而不是直接返回无结果。调用方的 `AbortSignal` 会立刻抛 `WEB_ABORTED` 并停止降级。两次及以上失败会合并成一个 `WEB_PROVIDER_ERROR`，消息中列出每个后端的失败原因；单个后端失败则原样抛出该错误。
-
-### 凭据
-
-每次搜索依次解析：字面量 `apiKey`、凭据服务、`apiKeyEnv` 指定的启动环境。轮换后的密钥下一次搜索即可生效。keyless 的 Tavily 与 TinyFish 不需要密钥；Exa 没有 keyless 模式。`available()` 只做本地判断：keyless 后端始终可用，带密钥的后端在后台探测完成前保持乐观。
 
 ### 结果
 
-每个后端结果映射为一个来源，包含 `url`、可选 `title`、`snippet` 与 `publishedAt`。仅当后端返回散文式内容时才设置 `content`：Tavily 在 `includeAnswer` 下的答案，或 TinyFish 返回的非 JSON 文本。没有 `url` 的结果被丢弃。`maxResults` 会作为结果数发给 Exa 与 Tavily，并由 web 服务对所有后端强制执行；服务截断来源时会设置 `truncated`。
+| 字段 | 类型 | 默认值 | 作用 |
+| --- | --- | --- | --- |
+| `snippetMaxChars` | number | `400` | 折叠空白并把摘要截断到该长度。`0` 关闭截断。 |
+
+### 每个后端通用（`providers.<backend>`）
+
+| 字段 | 类型 | 默认值 | 作用 |
+| --- | --- | --- | --- |
+| `enabled` | boolean | `true` | 插件是否构建并注册该后端。 |
+| `apiKey` | string | 未设置 | 直接写密钥。优先级最高。 |
+| `apiKeyEnv` | string | `EXA_API_KEY`、`TAVILY_API_KEY`、`TINYFISH_API_KEY` | 密钥名。插件先读凭据存储，再读环境变量。 |
+
+### Exa（`providers.exa`）
+
+| 字段 | 类型 | 默认值 | 作用 |
+| --- | --- | --- | --- |
+| `baseURL` | string | `https://api.exa.ai` | 端点基址。插件追加 `/search`。 |
+| `searchType` | `auto` \| `keyword` \| `neural` | `auto` | Exa 检索模式。 |
+| `highlightsPerResult` | number | `1` | 每个结果请求的 highlight 句子数。 |
+| `numResults` | number | 未设置 | 请求没有 `maxResults` 时，插件发送的结果数。 |
+
+### Tavily（`providers.tavily`）
+
+| 字段 | 类型 | 默认值 | 作用 |
+| --- | --- | --- | --- |
+| `baseURL` | string | `https://api.tavily.com` | 端点基址。插件追加 `/search`。 |
+| `keyless` | boolean | `true` | 没有密钥时，以无密钥方式使用 Tavily。 |
+| `searchDepth` | `basic` \| `advanced` | `basic` | Tavily 搜索深度。 |
+| `chunksPerSource` | number | `3` | Tavily 的 `chunks_per_source`。 |
+| `includeAnswer` | boolean | `false` | 向 Tavily 索取答案。插件把它作为 `content` 返回。 |
+
+### TinyFish（`providers.tinyfish`）
+
+| 字段 | 类型 | 默认值 | 作用 |
+| --- | --- | --- | --- |
+| `endpoint` | string | `https://agent.tinyfish.ai/mcp` | TinyFish MCP 端点。 |
+| `keyless` | boolean | `true` | 没有密钥时，以无密钥方式使用 TinyFish。 |
+| `domainType` | `web` \| `news` \| `research_paper` | `web` | TinyFish 搜索域。 |
+| `language` | string | 未设置 | 可选语言代码。 |
+| `location` | string | 未设置 | 可选国家代码。 |
+
+## 行为
+
+### 选择后端
+
+`random` 选一个可用后端。插件在后续调用中继续使用这个后端。只有它失败或进入冷却时，插件才更换。`priority` 使用 `order` 中第一个可用后端。`round-robin` 每次调用把 `order` 的起始位置向前移动一位。
+
+后端可用的条件是 `enabled` 为 true。后端还必须满足一项：本地能拿到密钥，或者它支持无密钥运行。插件不检查网络。
+
+要只用一个后端，把 `strategy` 设为 `priority`，并让 `order` 只含该项。也可以禁用其余后端。
+
+### 失败切换与冷却
+
+插件会在一段时间内跳过失败的后端。同一次调用继续尝试下一个候选，并返回第一个成功结果。如果插件跳过所有候选，本次调用忽略跳过状态，逐个尝试候选项。如果调用方通过 `AbortSignal` 取消，调用以 `WEB_ABORTED` 停止。它不再尝试其他后端。
+
+两次及以上失败会合并成一个 `WEB_PROVIDER_ERROR`，消息中列出每个后端。单个后端失败时，返回它自己的错误。
+
+### 密钥
+
+每个后端按以下顺序取密钥：
+
+1. `config.providers.<backend>.apiKey`：直接写在插件条目 `config` 里的明文密钥，优先级最高。
+2. `config.providers.<backend>.apiKeyEnv` 指定的名字，从 harness 凭据存储解析。
+3. 同名的环境变量，例如 `EXA_API_KEY`。它可以来自进程环境，也可以来自启动目录或 `$DSH_HOME` 下的 `.env`。
+
+`apiKey` 是插件 `config` 的字段，不是 dsh 的启动参数。轮换后的密钥下一次搜索即可生效。
+
+Tavily 与 TinyFish 可以无密钥运行。Exa 不行。`available()` 只检查本地状态。不需要密钥的后端始终可用。需要密钥的后端在后台密钥检查完成前，插件按可用处理。
+
+### 结果
+
+每个结果映射为一个来源，包含 `url`、可选 `title`、`snippet` 与 `publishedAt`。仅当后端返回文本时，插件才设置 `content`。例子包括开启 `includeAnswer` 时 Tavily 的答案，以及 TinyFish 返回的非 JSON 响应。
+
+插件丢弃没有 URL 的结果。它把 `maxResults` 作为结果数发给 Exa 与 Tavily。web 服务对所有后端执行这个上限。服务截断来源时设置 `truncated`。
 
 ## 限制
 
-- 只做搜索。网页抓取属于 web 服务的 fetch 提供方，例如 `http`。
-- 只有一个 provider id。面向模型的 `web_search` 工具无法按查询选择后端；选择是配置行为。
-- Exa 需要密钥，其 REST API 没有 keyless 模式。缺少密钥时该后端不可用。
-- keyless 的 Tavily 与 TinyFish 使用较低的厂商配额。被限流的后端返回 402、429 或 432，并被跳过 `rateLimitCooldownMs`。
-- 冷却保存在进程内存中。重启会忘记冷却，每个 profile 进程各自维护。
-- 粘滞 `random` 会把每次搜索都发给同一个后端，直到它失败；它不跨调用做负载均衡。
-- 后端可能返回少于请求数量的来源：适配器会丢弃没有 URL 的结果。服务只按 `maxResults` 截断。
-- `available()` 可能在凭据探测完成前把带密钥后端报告为可用；该窗口内的搜索可能以 `WEB_PROVIDER_CREDENTIAL_MISSING` 失败。
-- 请求使用裸 `fetch`；插件没有自己的代理或 TLS 选项。重定向会在接触目标前被拒绝。
+- 仅使用厂商提供的面向 Agent 的标准搜索 API。插件不包含非官方接口的逆向抓取（例如 Reddit、X 等站内搜索）。
+- 只做搜索。网页抓取由 web 服务的 fetch 提供方负责，例如 `http`。
+- 只有一个 provider id。`web_search` 工具无法按查询选择后端。选择是配置行为。
+- 每次搜索只由一个后端返回结果。插件不比对或合并多个后端的结果。
+- Exa 需要密钥，没有无密钥模式。缺少密钥时，该后端不可用。
+- 无密钥的 Tavily 与 TinyFish 使用厂商较低的无密钥配额。被限流的后端返回 402、429 或 432。插件跳过它 `rateLimitCooldownMs`。
+- 插件把冷却保存在进程内存中。重启会清除冷却。每个进程各自维护。
+- 默认的 `random` 模式把每次搜索都发给同一个后端，直到它失败。它不跨调用分摊负载。
+- 后端可能返回少于请求数量的来源，因为插件丢弃没有 URL 的结果。web 服务只按 `maxResults` 截断。
+- `available()` 可能在密钥检查完成前把需要密钥的后端报告为可用。该窗口内的搜索可能以 `WEB_PROVIDER_CREDENTIAL_MISSING` 失败。
+- 请求使用内置的 `fetch`。插件没有自己的代理或 TLS 设置。插件在接触目标前拒绝重定向。
 
 ## 格式与错误
 
-| 后端 | 请求 | 认证 | Keyless |
+| 后端 | 请求 | 认证 | 无密钥模式 |
 | --- | --- | --- | --- |
 | Exa | `POST {baseURL}/search` | `Authorization: Bearer <key>` | 不可用 |
 | Tavily | `POST {baseURL}/search` | `Authorization: Bearer <key>` | `X-Tavily-Access-Mode: keyless` |
-| TinyFish | `POST {endpoint}`，MCP `tools/call` `search`；带密钥时先 `initialize` | `X-API-Key` | `X-TinyFish-Access-Mode: keyless` |
+| TinyFish | `POST {endpoint}`，MCP `tools/call` `search`。需要密钥时先 `initialize`。 | `X-API-Key` | `X-TinyFish-Access-Mode: keyless` |
 
 | 结果字段 | Exa | Tavily | TinyFish |
 | --- | --- | --- | --- |
-| `url` | `results[].url` | `results[].url` | 文本 JSON 载荷中的 `results[].url` |
+| `url` | `results[].url` | `results[].url` | JSON 文本响应中的 `results[].url` |
 | `title` | `title` | `title` | `title` |
 | `snippet` | 首个非空 highlight | `content` | `snippet` 或 `content` |
 | `publishedAt` | `publishedDate` | `published_date` 或 `publishedDate` | `date` |
-| `content` | — | `includeAnswer` 下的 `answer` | 非 JSON 文本载荷 |
+| `content` | — | `includeAnswer` 下的 `answer` | 非 JSON 文本响应 |
 
 | 错误码 | 触发条件 |
 | --- | --- |
-| `WEB_PROVIDER_CREDENTIAL_MISSING` | 后端需要密钥却没有解析到：Exa 总是如此，Tavily 或 TinyFish 在 `keyless: false` 时如此。 |
-| `WEB_PROVIDER_UNAVAILABLE` | 调用时没有任何可用后端。 |
+| `WEB_PROVIDER_CREDENTIAL_MISSING` | 后端需要密钥，但没有可用密钥。Exa 总是需要密钥。Tavily 或 TinyFish 在 `keyless` 为 false 时需要密钥。 |
+| `WEB_PROVIDER_UNAVAILABLE` | 调用时没有可用后端。 |
 | `WEB_ABORTED` | 调用方的 `AbortSignal` 触发。 |
-| `WEB_PROVIDER_ERROR` | 请求失败、返回非 2xx、响应体无法解析、返回 JSON-RPC 错误，或所有后端都失败（聚合错误；`cause` 是最后一个错误）。 |
-
-`web.searchProvider` 指向未注册的 id 属于 web 服务的错误，不是本提供方的错误。
+| `WEB_PROVIDER_ERROR` | 请求失败、返回非 2xx、响应体无法解析、返回 JSON-RPC 错误，或所有后端都失败。合并后的错误列出每项失败，并把 `cause` 设为最后一个失败。 |
 
 ## 开发
 
@@ -121,8 +216,12 @@ npm test
 node --test test/selector.test.mjs
 ```
 
-测试覆盖选择与降级、三个厂商适配器（本地 mock server）、配置默认值与凭据优先级，以及一次装入临时 `DSH_HOME` 的安装冒烟。harness 自身的 Loader 与 web 服务行为不重复测试。仓库没有依赖，也没有 lockfile。测试需要 Node 22.15 或更新版本，且 `dsh` 在 `PATH` 中；可用 `DSH_BIN` 或 `DSH_INSTALL_NODE_MODULES` 覆盖安装发现。
+测试覆盖选择与失败切换、三个厂商适配器（本地 mock server）、配置默认值与密钥优先级，以及一次装入临时 `DSH_HOME` 的安装检查。
+
+每个厂商适配器位于 `lib/providers/`。要支持其他搜索 API，添加一个适配器，并在 `index.js` 与 `lib/config.js` 中接入。
+
+仓库没有依赖，也没有 lockfile。测试需要 Node 22.15 或更新版本，且 `dsh` 在 `PATH` 中。`DSH_BIN` 或 `DSH_INSTALL_NODE_MODULES` 可以覆盖安装发现。
 
 ## 许可
 
-本仓库未声明许可证。
+[Apache-2.0](./LICENSE) © [yelo](https://github.com/imyelo), 2026 - present

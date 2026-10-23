@@ -1,7 +1,7 @@
 {
   "name": "dsh-web-search-auto",
   "version": "0.0.0",
-  "description": "A DeepSeek Harness web search provider that uses Exa, Tavily or TinyFish as interchangeable backends, with automatic failover.",
+  "description": "A DeepSeek Harness web search plugin that supports several vendor search APIs, with backend selection and automatic failover.",
   "type": "module",
   "exports": {
     ".": "./index.js"
