@@ -95,11 +95,12 @@ class ExposedProvider {
 }
 
 /**
- * Build one backend adapter from its config block.
+ * Build one backend adapter per enabled provider block.
  *
  * @param {object} ctx plugin context
- * @param {{providers: object, timeoutMs: number, snippetMaxChars: number}} shared
- * @returns {{id: string, provider: object} | undefined}
+ * @param {object} providers provider config blocks (exa/tavily/tinyfish)
+ * @param {{timeoutMs: number, snippetMaxChars: number}} shared shared settings
+ * @returns {Array<{id: string, provider: object}>}
  */
 function buildBackends(ctx, providers, shared) {
   const backends = [];
