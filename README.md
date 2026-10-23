@@ -1,10 +1,10 @@
 # dsh-web-search-auto
 
+> 🔎 A DeepSeek Harness web search plugin that routes across several search backends, with automatic failover.
+
 English | [中文](README.zh.md)
 
-dsh-web-search-auto is a DeepSeek Harness web search plugin that combines several mainstream agent web search services. It takes multiple backends at once, such as Exa, Tavily or TinyFish — much like [the WebSearch built into Opencode v2](https://opencode.ai/v2/docs/websearch/).
-
-Set globally shared environment variables, or configure the backends in a cordis patch. The plugin then routes searches for you.
+It takes Exa, Tavily and TinyFish today — much like [the WebSearch built into Opencode v2](https://opencode.ai/v2/docs/websearch/). Set globally shared environment variables, or configure the backends in a cordis patch; the plugin then routes searches for you.
 
 ## Features
 

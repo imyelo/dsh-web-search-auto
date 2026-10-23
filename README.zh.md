@@ -1,10 +1,10 @@
 # dsh-web-search-auto
 
+> 🔎 一个在多个搜索后端之间分流、并自动故障转移的 DeepSeek Harness 网页搜索插件。
+
 [English](README.md) | 中文
 
-dsh-web-search-auto 是集成多个主流 Agent WebSearch 服务的 DeepSeek Harness 网页搜索插件，支持同时配置多个后端，如 Exa、Tavily、TinyFish —— 就像 [Opencode v2 自带的 WebSearch](https://opencode.ai/v2/docs/websearch/) 特性。
-
-你可以通过设置全局共享的环境变量，或在 cordis patch 中配置后端，插件会自动分发搜索任务。
+目前支持 Exa、Tavily、TinyFish —— 就像 [Opencode v2 自带的 WebSearch](https://opencode.ai/v2/docs/websearch/) 特性。你可以通过设置全局共享的环境变量，或在 cordis patch 中配置后端，插件会自动分发搜索任务。
 
 ## 特性
 
