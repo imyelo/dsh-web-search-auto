@@ -1,0 +1,14 @@
+# web-search-auto: one composite `ctx.web` search provider that fans out across
+# Exa / Tavily / TinyFish with sticky-random selection and automatic failover.
+#
+# This patch only INSERTS the row. Selecting it is a separate, user-level step,
+# because `web.searchProvider` may already be set by a higher-priority layer:
+#
+#   - id: web
+#     config:
+#       searchProvider: auto      # <- the config `id` of this plugin (see README)
+#
+- insert:
+    - id: web-search-auto
+      name: '@local/web-search-auto'
+      config: {}

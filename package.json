@@ -1,0 +1,27 @@
+{
+  "name": "@local/web-search-auto",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Multi-provider web search for the dsh ctx.web seam: one composite provider that picks a backend at random (sticky) and fails over automatically across Exa, Tavily and TinyFish.",
+  "type": "module",
+  "exports": {
+    ".": "./index.js"
+  },
+  "engines": {
+    "node": ">=22.15"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "*",
+    "@deepseek-ai/dsh-web": "*",
+    "@deepseek-ai/dsh-launch-environment": "*",
+    "@deepseek-ai/dsh-credentials": "*"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}
