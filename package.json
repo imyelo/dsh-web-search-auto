@@ -38,7 +38,11 @@
     "node": ">=22.15"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "release": "np"
+  },
+  "devDependencies": {
+    "np": "^12.1.1"
   },
   "peerDependencies": {
     "@deepseek-ai/schemastery": "*",
