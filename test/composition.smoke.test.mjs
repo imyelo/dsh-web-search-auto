@@ -22,7 +22,7 @@ function runDsh(home, args) {
   const env = { ...process.env, DSH_HOME: home };
   delete env.DSH_PROFILE;
   delete env.DSH_PROFILE_DIR;
-  return execFileSync('dsh', args, { encoding: 'utf8', env, stdio: 'pipe' });
+  return execFileSync('dsh', args, { encoding: 'utf8', env, stdio: 'pipe', timeout: 30_000 });
 }
 
 test('Install smoke: the bundle installs into a temp DSH_HOME, the row mounts and the compatibility gate passes', async () => {
@@ -36,7 +36,8 @@ test('Install smoke: the bundle installs into a temp DSH_HOME, the row mounts an
     const entries = boot.composeEntries([...profile.layers.map((layer) => layer.patches), profile.patches]);
     const row = entries.find((entry) => entry.id === 'web-search-auto');
 
-    assert.equal(row?.name, 'dsh-web-search-auto');
+    assert.ok(row, 'web-search-auto patch row not found');
+    assert.equal(row.name, 'dsh-web-search-auto');
     assert.deepEqual(row.config, {});
     assert.deepEqual(profile.skippedBundles, [], 'no bundle should be skipped');
 

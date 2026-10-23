@@ -24,9 +24,17 @@ import { pathToFileURL } from 'node:url';
 
 function findDshInstallNodeModules() {
   if (process.env.DSH_INSTALL_NODE_MODULES) return process.env.DSH_INSTALL_NODE_MODULES;
-  const bin = (
-    process.env.DSH_BIN ?? execFileSync('sh', ['-c', 'command -v dsh'], { encoding: 'utf8' })
-  ).trim();
+  let bin = process.env.DSH_BIN;
+  if (bin === undefined) {
+    try {
+      bin = execFileSync('sh', ['-c', 'command -v dsh'], { encoding: 'utf8' });
+    } catch {
+      // `command -v` exits non-zero when dsh is absent; report it below instead
+      // of leaking the raw execFileSync error.
+      bin = '';
+    }
+  }
+  bin = bin.trim();
   if (bin === '') throw new Error('test-hooks: cannot find dsh; put it on PATH or set DSH_BIN');
   const real = realpathSync(bin);
   const marker = `${sep}node_modules${sep}`;

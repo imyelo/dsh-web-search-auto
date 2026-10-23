@@ -14,6 +14,9 @@ export function startServer(handler) {
     const server = http.createServer((request, response) => {
       let body = '';
       request.setEncoding('utf8');
+      // A client that aborts mid-request (e.g. an AbortSignal test) must not
+      // surface as an unhandled stream error and crash the test process.
+      request.on('error', () => {});
       request.on('data', (chunk) => {
         body += chunk;
       });
@@ -26,6 +29,8 @@ export function startServer(handler) {
         }
         requests.push(record);
         Promise.resolve(handler(record, response)).catch((error) => {
+          // A handler that already answered must not turn into a second write.
+          if (response.headersSent) return;
           response.statusCode = 500;
           response.end(`handler failure: ${String(error?.stack ?? error)}`);
         });

@@ -80,12 +80,12 @@ test('Cooldown: a failed backend is skipped within cooldownMs and becomes a cand
     },
   });
   const good = fakeChild('good');
-  const provider = selector([bad, good], { strategy: 'priority', order: ['bad', 'good'], cooldownMs: 40 });
+  const provider = selector([bad, good], { strategy: 'priority', order: ['bad', 'good'], cooldownMs: 100 });
   await provider.search({ query: 'q1' });
   assert.equal(bad.calls.length, 1);
   await provider.search({ query: 'q2' });
   assert.equal(bad.calls.length, 1, 'bad should not be retried during cooldown');
-  await sleep(60);
+  await sleep(250);
   await provider.search({ query: 'q3' });
   assert.equal(bad.calls.length, 2, 'bad should be a candidate again after cooldown expires');
 });
@@ -149,8 +149,14 @@ test('No available backend raises WEB_PROVIDER_UNAVAILABLE; all-cooling does not
     },
   });
   const cooling = selector([only], { strategy: 'priority', order: ['only'], cooldownMs: 60000 });
-  await assert.rejects(() => cooling.search({ query: 'q1' }));
-  await assert.rejects(() => cooling.search({ query: 'q2' }));
+  await assert.rejects(
+    () => cooling.search({ query: 'q1' }),
+    (error) => error.message === 'only down',
+  );
+  await assert.rejects(
+    () => cooling.search({ query: 'q2' }),
+    (error) => error.message === 'only down',
+  );
   assert.equal(only.calls.length, 2, 'still tries while everything is cooling rather than failing all artificially');
 });
 
