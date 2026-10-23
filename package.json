@@ -1,11 +1,33 @@
 {
-  "name": "@local/web-search-auto",
+  "name": "dsh-web-search-auto",
   "version": "0.0.0",
-  "private": true,
-  "description": "Multi-provider web search for the dsh ctx.web seam: one composite provider that picks a backend at random (sticky) and fails over automatically across Exa, Tavily and TinyFish.",
+  "description": "A DeepSeek Harness web search provider that uses Exa, Tavily or TinyFish as interchangeable backends, with automatic failover.",
   "type": "module",
   "exports": {
     ".": "./index.js"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "web-search",
+    "search",
+    "exa",
+    "tavily",
+    "tinyfish",
+    "plugin"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/imyelo/dsh-web-search-auto.git"
   },
   "engines": {
     "node": ">=22.15"

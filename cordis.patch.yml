@@ -10,5 +10,5 @@
 #
 - insert:
     - id: web-search-auto
-      name: '@local/web-search-auto'
+      name: 'dsh-web-search-auto'
       config: {}

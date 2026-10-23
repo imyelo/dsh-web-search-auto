@@ -1,5 +1,5 @@
 /**
- * `@local/web-search-auto`: one composite `ctx.web` search provider that fans
+ * `dsh-web-search-auto`: one composite `ctx.web` search provider that fans
  * out across a pool of backends (Exa, Tavily, TinyFish) with sticky-random
  * selection and automatic failover.
  *
@@ -8,7 +8,7 @@
  * selection"), so the cascade lives inside this one provider: `web.searchProvider`
  * points at `auto` (configurable via `id`), and `auto` decides which backend runs.
  *
- * @module @local/web-search-auto
+ * @module dsh-web-search-auto
  */
 import { Config, DEFAULT_ORDER } from './lib/config.js';
 import { KeyState } from './lib/keys.js';

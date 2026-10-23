@@ -36,7 +36,7 @@ test('Install smoke: the bundle installs into a temp DSH_HOME, the row mounts an
     const entries = boot.composeEntries([...profile.layers.map((layer) => layer.patches), profile.patches]);
     const row = entries.find((entry) => entry.id === 'web-search-auto');
 
-    assert.equal(row?.name, '@local/web-search-auto');
+    assert.equal(row?.name, 'dsh-web-search-auto');
     assert.deepEqual(row.config, {});
     assert.deepEqual(profile.skippedBundles, [], 'no bundle should be skipped');
 
