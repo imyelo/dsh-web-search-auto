@@ -16,12 +16,17 @@
   ],
   "keywords": [
     "dsh",
+    "dsh-plugin",
+    "deepseek",
     "deepseek-harness",
     "web-search",
+    "websearch",
     "search",
+    "search-provider",
     "exa",
     "tavily",
     "tinyfish",
+    "failover",
     "plugin"
   ],
   "license": "Apache-2.0",
