@@ -96,11 +96,29 @@ export function fakeChild(id, { available = true, behavior } = {}) {
 }
 
 /**
- * Fake Loader context for `apply()` tests: captures search-provider
- * registrations, effect cleanups, and log calls; `get()` serves only the
- * services a test supplies.
+ * A launch-environment stand-in with a fixed name → value map.
+ *
+ * KeyState resolves its last layer through `launchEnvironmentOf(ctx)`, whose own
+ * fallback is the real `process.env` when the host supplied no snapshot. Tests
+ * must not inherit the calling shell (a developer with EXA_API_KEY exported
+ * would flip keyed backends to "available"), so `fakeCtx` always supplies an
+ * empty snapshot and tests opt in to the values they want.
  */
-export function fakeCtx({ failOnId, services = {} } = {}) {
+export function fakeLaunchEnvironment(values = {}) {
+  return {
+    get(name) {
+      return Object.hasOwn(values, name) ? { value: values[name], source: 'process' } : undefined;
+    },
+  };
+}
+
+/**
+ * Fake Loader context for `apply()` tests: captures search-provider
+ * registrations, effect cleanups, and log calls; `get()` serves the launch
+ * environment plus the services a test supplies.
+ */
+export function fakeCtx({ failOnId, services = {}, launchEnvironment } = {}) {
+  const resolvedServices = { launchEnvironment: fakeLaunchEnvironment(launchEnvironment), ...services };
   const registrations = [];
   const effectCleanups = [];
   const logs = [];
@@ -129,7 +147,7 @@ export function fakeCtx({ failOnId, services = {} } = {}) {
       effectCleanups.push(callback());
     },
     get(key) {
-      return services[key];
+      return resolvedServices[key];
     },
     logger() {
       return {

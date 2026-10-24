@@ -93,12 +93,6 @@ test('apply: effect cleanup unregisters everything; a mid-way registration failu
 });
 
 test('Credential order: literal > managed credential service > launch environment', async () => {
-  const setKey = (value) => {
-    process.env.WS_TEST_KEY = value;
-  };
-  const clearKey = () => {
-    delete process.env.WS_TEST_KEY;
-  };
   const config = {
     strategy: 'priority',
     order: ['tavily'],
@@ -110,31 +104,26 @@ test('Credential order: literal > managed credential service > launch environmen
   };
   const credentials = { resolve: async () => ({ value: 'cred-secret' }) };
 
-  try {
-    setKey('env-secret');
-    await withFetch(async (calls) => {
-      const literal = fakeCtx({ services: { credentials } });
-      plugin.apply(literal.ctx, { ...config, providers: { ...config.providers, tavily: { ...config.providers.tavily, apiKey: 'literal-secret' } } });
-      await literal.registrations[0].search({ query: 'q' });
-      assert.equal(calls[0].headers.get('authorization'), 'Bearer literal-secret');
-    });
+  await withFetch(async (calls) => {
+    const literal = fakeCtx({ services: { credentials } });
+    plugin.apply(literal.ctx, { ...config, providers: { ...config.providers, tavily: { ...config.providers.tavily, apiKey: 'literal-secret' } } });
+    await literal.registrations[0].search({ query: 'q' });
+    assert.equal(calls[0].headers.get('authorization'), 'Bearer literal-secret');
+  });
 
-    await withFetch(async (calls) => {
-      const managed = fakeCtx({ services: { credentials } });
-      plugin.apply(managed.ctx, config);
-      await managed.registrations[0].search({ query: 'q' });
-      assert.equal(calls[0].headers.get('authorization'), 'Bearer cred-secret');
-    });
+  await withFetch(async (calls) => {
+    const managed = fakeCtx({ services: { credentials } });
+    plugin.apply(managed.ctx, config);
+    await managed.registrations[0].search({ query: 'q' });
+    assert.equal(calls[0].headers.get('authorization'), 'Bearer cred-secret');
+  });
 
-    await withFetch(async (calls) => {
-      const launch = fakeCtx();
-      plugin.apply(launch.ctx, config);
-      await launch.registrations[0].search({ query: 'q' });
-      assert.equal(calls[0].headers.get('authorization'), 'Bearer env-secret');
-    });
-  } finally {
-    clearKey();
-  }
+  await withFetch(async (calls) => {
+    const launch = fakeCtx({ launchEnvironment: { WS_TEST_KEY: 'env-secret' } });
+    plugin.apply(launch.ctx, config);
+    await launch.registrations[0].search({ query: 'q' });
+    assert.equal(calls[0].headers.get('authorization'), 'Bearer env-secret');
+  });
 });
 
 test('Credential update: a keyed backend previously deemed missing becomes available after reference-updated', async () => {
